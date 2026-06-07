@@ -18,7 +18,7 @@
    cd llm-twin
    chmod +x twin
 
-   🗺️ Roadmap / What We Are Building Next
+##   🗺️ Roadmap / What We Are Building Next
 This CLI serves as the open-source entry point to a comprehensive, event-driven hardware simulation platform. We are actively working on:
 
 [ ] Trace-driven Emulation: Simulating raw PyTorch/vLLM execution traces via discrete-event network models.
