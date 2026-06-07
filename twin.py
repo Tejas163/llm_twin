@@ -103,15 +103,25 @@ def generate_markdown_matrix(config_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="llm-twin orchestration engine")
+    
+    # CRITICAL FIX: dest="command" must be explicitly set here 
+    # so that args.command becomes accessible.
     sub = parser.add_subparsers(dest="command", required=True)
     
+    # 1. Single Simulation Subcommand
     sim = sub.add_parser("simulate")
-    sim.add_argument("config")
+    sim.add_argument("config", help="Path to a single YAML configuration file")
     
+    # 2. Batch Matrix Subcommand
     matrix = sub.add_parser("matrix")
-    matrix.add_argument("directory", help="Path to config directory")
+    matrix.add_argument("directory", help="Path to directory containing multiple YAML configurations")
 
     args = parser.parse_args()
+
+    # Safety fall-through check
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
 
     if args.command == "matrix":
         print(generate_markdown_matrix(args.directory))
@@ -121,5 +131,7 @@ def main():
             metrics = FakeLLMScaler(cfg).simulate()
             print(f"Throughput: {metrics['throughput_tok_sec']:.2f} tokens/sec | Fits Memory: {metrics['fits']}")
 
+if __name__ == "__main__":
+    main()
 if __name__ == "__main__":
     main()
