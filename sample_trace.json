@@ -1,0 +1,133 @@
+{
+  "traceEvents": [
+    {
+      "name": "Request_1",
+      "cat": "inference",
+      "ph": "B",
+      "ts": 1000,
+      "pid": 1,
+      "tid": 1
+    },
+
+    {
+      "name": "Tokenizer",
+      "cat": "cpu",
+      "ph": "X",
+      "ts": 1100,
+      "dur": 200,
+      "pid": 1,
+      "tid": 2
+    },
+
+    {
+      "name": "Prompt_Embedding",
+      "cat": "gpu",
+      "ph": "X",
+      "ts": 1350,
+      "dur": 400,
+      "pid": 1,
+      "tid": 10
+    },
+
+    {
+      "name": "KV_Cache_Allocation",
+      "cat": "memory",
+      "ph": "X",
+      "ts": 1800,
+      "dur": 150,
+      "pid": 1,
+      "tid": 3
+    },
+
+    {
+      "name": "Attention_Kernel",
+      "cat": "gpu",
+      "ph": "X",
+      "ts": 2000,
+      "dur": 1200,
+      "pid": 1,
+      "tid": 10
+    },
+
+    {
+      "name": "MLP_Kernel",
+      "cat": "gpu",
+      "ph": "X",
+      "ts": 3300,
+      "dur": 900,
+      "pid": 1,
+      "tid": 10
+    },
+
+    {
+      "name": "Token_Generation_1",
+      "cat": "decode",
+      "ph": "X",
+      "ts": 4300,
+      "dur": 300,
+      "pid": 1,
+      "tid": 10
+    },
+
+    {
+      "name": "Token_Generation_2",
+      "cat": "decode",
+      "ph": "X",
+      "ts": 4700,
+      "dur": 280,
+      "pid": 1,
+      "tid": 10
+    },
+
+    {
+      "name": "Token_Generation_3",
+      "cat": "decode",
+      "ph": "X",
+      "ts": 5050,
+      "dur": 260,
+      "pid": 1,
+      "tid": 10
+    },
+
+    {
+      "name": "Response_Serialization",
+      "cat": "cpu",
+      "ph": "X",
+      "ts": 5400,
+      "dur": 180,
+      "pid": 1,
+      "tid": 2
+    },
+
+    {
+      "name": "Request_1",
+      "cat": "inference",
+      "ph": "E",
+      "ts": 5650,
+      "pid": 1,
+      "tid": 1
+    },
+
+    {
+      "name": "GPU_Memory_Used_GB",
+      "ph": "C",
+      "cat": "memory",
+      "ts": 2500,
+      "pid": 1,
+      "args": {
+        "value": 52
+      }
+    },
+
+    {
+      "name": "GPU_Utilization",
+      "ph": "C",
+      "cat": "gpu",
+      "ts": 2500,
+      "pid": 1,
+      "args": {
+        "value": 87
+      }
+    }
+  ]
+}
