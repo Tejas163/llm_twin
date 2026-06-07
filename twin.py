@@ -30,45 +30,66 @@ def parse_simple_yaml(filepath):
         return None
 
 # --- Phase 3: Discrete-Event Trace Emulator Engine ---
+# --- Updated Phase 3 Trace Emulator Engine ---
 class TraceEmulator:
     def __init__(self, trace_data, hardware_config):
         self.trace = trace_data
         self.hw = hardware_config
         self.virtual_clock_ms = 0.0
         self.execution_logs = []
+        self.max_vram_observed = 0.0
 
     def run(self):
-        """Processes execution kernels line-by-line using a virtual clock."""
-        tflops = self.hw.get("hardware", {}).get("gpu_tflops", 312)
-        gpus = self.hw.get("hardware", {}).get("gpu_count", 1)
-        interconnect = self.hw.get("hardware", {}).get("interconnect_type", "NVLink")
+        """Processes standard Chrome/PyTorch execution traces using a virtual scheduler."""
+        target_tflops = self.hw.get("hardware", {}).get("gpu_tflops", 312)
+        target_gpus = self.hw.get("hardware", {}).get("gpu_count", 1)
+        total_vram_limit = target_gpus * self.hw.get("hardware", {}).get("gpu_memory_gb", 80)
         
-        # Determine communication speed overhead penalty (in ms)
-        comm_latency = 0.002 if interconnect == "NVLink" else 0.050
+        # Baseline reference for duration scaling (Assuming original trace profiling done on standard A100)
+        baseline_gpu_tflops = 312 
 
-        for event in self.trace.get("traceEvents", []):
-            event_type = event.get("type")
-            name = event.get("name", "unknown_kernel")
+        events = self.trace.get("traceEvents", [])
+        
+        for event in events:
+            name = event.get("name", "unnamed_event")
+            category = event.get("cat", "")
+            phase = event.get("ph", "")
             
-            if event_type == "COMPUTE":
-                # Scale execution duration based on simulated TFLOPS capability vs baseline trace
-                baseline_tflops = event.get("baseline_tflops", 312)
-                raw_duration = event.get("duration_ms", 1.0)
-                simulated_duration = raw_duration * (baseline_tflops / (tflops * gpus))
+            # Handle Duration Events (ph="X")
+            if phase == "X":
+                raw_duration_us = event.get("dur", 0)
+                raw_duration_ms = raw_duration_us / 1000.0 # Convert microseconds to ms if needed
                 
+                # If the event ran on the GPU, scale the duration by hardware capabilities
+                if category == "gpu":
+                    simulated_duration = raw_duration_ms * (baseline_gpu_tflops / (target_tflops * target_gpus))
+                else:
+                    # CPU operations/Tokenization scale at base execution times
+                    simulated_duration = raw_duration_ms
+
                 self.virtual_clock_ms += simulated_duration
-                self.execution_logs.append(f"[{self.virtual_clock_ms:.3f} ms] Executed compute kernel: {name} ({simulated_duration:.3f} ms)")
+                self.execution_logs.append(
+                    f"[{self.virtual_clock_ms:.3f} ms] Completed [{category.upper()}] Kernel: {name} (Simulated: {simulated_duration:.3f} ms)"
+                )
+            
+            # Handle Counter Tracking Events (ph="C")
+            elif phase == "C":
+                args = event.get("args", {})
+                value = args.get("value", 0)
                 
-            elif event_type == "COMMUNICATION":
-                # Model collective communications penalty (e.g., AllReduce across nodes)
-                data_size_mb = event.get("data_size_mb", 10)
-                transfer_delay = (data_size_mb / 1000.0) + comm_latency
-                
-                self.virtual_clock_ms += transfer_delay
-                self.execution_logs.append(f"[{self.virtual_clock_ms:.3f} ms] Synchronized GPU cluster via {interconnect}: {name} ({transfer_delay:.3f} ms)")
+                if name == "GPU_Memory_Used_GB":
+                    if value > self.max_vram_observed:
+                        self.max_vram_observed = value
+                    
+                    status_flag = "🚨 EXCEEDED" if value > total_vram_limit else "STABLE"
+                    self.execution_logs.append(
+                        f"[{self.virtual_clock_ms:.3f} ms] [COUNTER] {name} changed to {value} GB / {total_vram_limit} GB -> Status: {status_flag}"
+                    )
 
         return {
             "total_simulated_time_ms": self.virtual_clock_ms,
+            "peak_vram_tracked_gb": self.max_vram_observed,
+            "vram_limit_gb": total_vram_limit,
             "timeline": self.execution_logs
         }
 
