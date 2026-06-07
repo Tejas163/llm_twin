@@ -1,0 +1,11 @@
+model:
+  name: llama-405b
+  parameters_billion: 405
+hardware:
+  gpu_type: H100
+  gpu_count: 32
+  gpu_memory_gb: 80
+  gpu_tflops: 989
+inference:
+  batch_size: 512
+  sequence_length: 8192

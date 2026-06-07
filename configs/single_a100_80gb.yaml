@@ -1,0 +1,11 @@
+model:
+  name: llama-34b
+  parameters_billion: 34
+hardware:
+  gpu_type: A100
+  gpu_count: 1
+  gpu_memory_gb: 80
+  gpu_tflops: 312
+inference:
+  batch_size: 16
+  sequence_length: 4096
