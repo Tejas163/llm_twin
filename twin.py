@@ -1,32 +1,35 @@
 #!/usr/bin/env python3
 import argparse
 import sys
+import os
 
-# Standard library safe alternative to PyYAML for standalone script distribution
+# Pure-Python YAML Parser to avoid pip install issues in clean environments
 def parse_simple_yaml(filepath):
-    """Parses flat/nested structure without external dependencies."""
     data = {}
     current_section = None
-    with open(filepath, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if ':' in line and not line.endswith(':'):
-                k, v = line.split(':', 1)
-                k, v = k.strip(), v.strip().strip('"').strip("'")
-                # Parse types
-                if v.isdigit(): v = int(v)
-                elif v.replace('.', '', 1).isdigit(): v = float(v)
-                
-                if current_section:
-                    data[current_section][k] = v
-                else:
-                    data[k] = v
-            elif line.endswith(':'):
-                current_section = line[:-1].strip()
-                data[current_section] = {}
-    return data
+    try:
+        with open(filepath, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if ':' in line and not line.endswith(':'):
+                    k, v = line.split(':', 1)
+                    k, v = k.strip(), v.strip().strip('"').strip("'")
+                    if v.isdigit(): v = int(v)
+                    elif v.replace('.', '', 1).isdigit(): v = float(v)
+                    
+                    if current_section:
+                        data[current_section][k] = v
+                    else:
+                        data[k] = v
+                elif line.endswith(':'):
+                    current_section = line[:-1].strip()
+                    data[current_section] = {}
+        return data
+    except Exception as e:
+        print(f"Error parsing {filepath}: {e}")
+        return None
 
 class FakeLLMScaler:
     def __init__(self, config):
@@ -35,7 +38,6 @@ class FakeLLMScaler:
     def calculate_throughput(self, gpu_count, gpu_tflops):
         m = self.config["model"]["parameters_billion"]
         batch = self.config["inference"]["batch_size"]
-        # Simplified operational throughput formula
         return ((gpu_count * gpu_tflops * 40) / m) * (batch ** 0.6) * (2000 / (2000 + self.config["inference"]["sequence_length"]))
 
     def simulate(self):
@@ -46,70 +48,78 @@ class FakeLLMScaler:
         batch = self.config["inference"]["batch_size"]
         seq = self.config["inference"]["sequence_length"]
 
-        # Base weights calculation (assuming default FP16 = 2 bytes/param)
         weight_memory = m * 2
-        
-        # High-fidelity KV Cache calculation proxy per token
         kv_cache_per_token_gb = (m * 1.5e-6 + 4e-5)
         kv_cache_memory = kv_cache_per_token_gb * seq * batch
         
         total_required_memory = weight_memory + kv_cache_memory
         total_gpu_memory = g * mem
-        memory_utilization = (total_required_memory / total_gpu_memory) * 100
 
         throughput = self.calculate_throughput(g, tflops)
         latency = (seq * m) / (g * 2500)
-        gpu_utilization = min(98.0, max(15.0, (batch * 0.4) + (seq / 100)))
 
         return {
-            "model_weights_gb": weight_memory,
-            "kv_cache_demand_gb": kv_cache_memory,
-            "total_memory_needed_gb": total_required_memory,
-            "memory_utilization_pct": memory_utilization,
-            "throughput_tokens_sec": throughput,
+            "model": self.config["model"]["name"],
+            "topology": f"{g}x {self.config['hardware']['gpu_type']}",
+            "total_mem_gb": total_gpu_memory,
+            "required_mem_gb": total_required_memory,
+            "mem_util_pct": (total_required_memory / total_gpu_memory) * 100,
+            "throughput_tok_sec": throughput,
             "latency_ms": latency,
-            "gpu_compute_utilization_pct": gpu_utilization,
-            "fits_memory": total_required_memory < total_gpu_memory,
+            "fits": total_required_memory < total_gpu_memory
         }
 
-def print_report(config, metrics):
-    print("\n" + "=" * 65)
-    print(" 🚀  LLM INFRASTRUCTURE SIMULATION REPORT")
-    print("=" * 65)
-    print(f"  [Model]      : {config['model']['name'].upper()} ({config['model']['parameters_billion']}B)")
-    print(f"  [Hardware]   : {config['hardware']['gpu_count']}x {config['hardware']['gpu_type']} ({config['hardware']['gpu_memory_gb']}GB VRAM)")
-    print(f"  [Workload]   : Batch Size {config['inference']['batch_size']} | Seq Len {config['inference']['sequence_length']}")
-    print("-" * 65)
-    print(f"  • Model Weight VRAM    : {metrics['model_weights_gb']:.1f} GB")
-    print(f"  • Context KV Cache VRAM: {metrics['kv_cache_demand_gb']:.1f} GB")
-    print(f"  • Total VRAM Required  : {metrics['total_memory_needed_gb']:.1f} GB / {config['hardware']['gpu_count'] * config['hardware']['gpu_memory_gb']} GB")
-    print(f"  • Memory Utilization   : {metrics['memory_utilization_pct']:.1f}%")
-    print(f"  • Est. System Output   : {metrics['throughput_tokens_sec']:.1f} tokens/sec")
-    print(f"  • Computed Latency     : {metrics['latency_ms']:.1f} ms")
-    print(f"  • GPU Load Proxy       : {metrics['gpu_compute_utilization_pct']:.1f}%")
-    print("-" * 65)
-    if metrics["fits_memory"]:
-        print("  ✓ [STATUS: PASSED] Hardware configuration is stable for this workload.")
-    else:
-        print("  ❌ [STATUS: CRITICAL OOM] System configuration will cause a CUDA Out-Of-Memory error.")
-    print("=" * 65 + "\n")
+def generate_markdown_matrix(config_dir):
+    if not os.path.isdir(config_dir):
+        print(f"Error: Directory '{config_dir}' does not exist.")
+        sys.exit(1)
+
+    results = []
+    files = [f for f in os.listdir(config_dir) if f.endswith('.yaml') or f.endswith('.yml')]
+    
+    for file in sorted(files):
+        path = os.path.join(config_dir, file)
+        cfg = parse_simple_yaml(path)
+        if cfg and "model" in cfg and "hardware" in cfg:
+            metrics = FakeLLMScaler(cfg).simulate()
+            metrics["filename"] = file
+            results.append(metrics)
+
+    md = []
+    md.append("### 🚦 `llm-twin` Architectural Simulation Matrix")
+    md.append("Automated performance validation run across target infrastructure configurations.\n")
+    md.append("| Profile Name | Target Model | Cluster Setup | VRAM Allocation | Throughput | Est. Latency | Status |")
+    md.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+    
+    for r in results:
+        vram_string = f"{r['required_mem_gb']:.1f} / {r['total_mem_gb']} GB ({r['mem_util_pct']:.1f}%)"
+        status = "✅ PASSED" if r["fits"] else "❌ CRITICAL OOM"
+        throughput_str = f"{r['throughput_tok_sec']:,.1f} tok/s"
+        latency_str = f"{r['latency_ms']:.1f} ms"
+        md.append(f"| `{r['filename']}` | {r['model'].upper()} | {r['topology']} | {vram_string} | {throughput_str} | {latency_str} | {status} |")
+    
+    md.append("\n*Generated automatically by `llm-twin` continuous integration gatekeeper.*")
+    return "\n".join(md)
 
 def main():
-    parser = argparse.ArgumentParser(description="gpusim CLI")
+    parser = argparse.ArgumentParser(description="llm-twin orchestration engine")
     sub = parser.add_subparsers(dest="command", required=True)
-    sim = sub.add_parser("simulate")
-    sim.add_argument("config", help="Path to YAML topology configuration")
     
+    sim = sub.add_parser("simulate")
+    sim.add_argument("config")
+    
+    matrix = sub.add_parser("matrix")
+    matrix.add_argument("directory", help="Path to config directory")
+
     args = parser.parse_args()
-    if args.command == "simulate":
-        try:
-            cfg = parse_simple_yaml(args.config)
-            scaler = FakeLLMScaler(cfg)
-            metrics = scaler.simulate()
-            print_report(cfg, metrics)
-        except Exception as e:
-            print(f"Execution Error: {e}")
-            sys.exit(1)
+
+    if args.command == "matrix":
+        print(generate_markdown_matrix(args.directory))
+    elif args.command == "simulate":
+        cfg = parse_simple_yaml(args.config)
+        if cfg:
+            metrics = FakeLLMScaler(cfg).simulate()
+            print(f"Throughput: {metrics['throughput_tok_sec']:.2f} tokens/sec | Fits Memory: {metrics['fits']}")
 
 if __name__ == "__main__":
     main()
