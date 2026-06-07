@@ -23,3 +23,8 @@ This CLI serves as the open-source entry point to a comprehensive, event-driven 
 * [ ] Trace-driven Emulation: Simulating raw PyTorch/vLLM execution traces via discrete-event network models.
 * [ ] Interconnect Topologies: Modeling NVLink bandwidth degradation and InfiniBand cluster bottlenecks.
 * [ ] GitHub Action Gatekeeper: Automatically commenting on PRs with infrastructure scaling and cost changes.
+* [ ] ## 🗺️ Roadmap
+
+We are actively shifting from our analytical model to a full-scale hardware simulation environment. 
+
+👉 **[View our interactive Live Development Roadmap Board][(https://github.com/users/Tejas163/projects/1)]** to see what we're building this week, track current sprints, or contribute!
