@@ -4,7 +4,7 @@ import sys
 import os
 import json
 
-# --- Pure-Python Lightweight YAML Parser ---
+# --- Simple YAML Parser from Phase 2 ---
 def parse_simple_yaml(filepath):
     data = {}
     current_section = None
@@ -29,79 +29,50 @@ def parse_simple_yaml(filepath):
         print(f"Error parsing YAML {filepath}: {e}")
         return None
 
-# --- Phase 3: Advanced Discrete-Event Trace Emulator ---
+# --- Phase 3: Discrete-Event Trace Emulator Engine ---
 class TraceEmulator:
     def __init__(self, trace_data, hardware_config):
         self.trace = trace_data
         self.hw = hardware_config
         self.virtual_clock_ms = 0.0
         self.execution_logs = []
-        self.max_vram_observed = 0.0
-        self.initial_timestamp_us = None
 
     def run(self):
-        """Emulates production Chrome Trace / PyTorch Profiler json structures."""
-        target_tflops = self.hw.get("hardware", {}).get("gpu_tflops", 312)
-        target_gpus = self.hw.get("hardware", {}).get("gpu_count", 1)
-        total_vram_limit = target_gpus * self.hw.get("hardware", {}).get("gpu_memory_gb", 80)
+        """Processes execution kernels line-by-line using a virtual clock."""
+        tflops = self.hw.get("hardware", {}).get("gpu_tflops", 312)
+        gpus = self.hw.get("hardware", {}).get("gpu_count", 1)
+        interconnect = self.hw.get("hardware", {}).get("interconnect_type", "NVLink")
         
-        baseline_gpu_tflops = 312 
-        events = self.trace.get("traceEvents", [])
-        
-        for event in events:
-            name = event.get("name", "unnamed_event")
-            category = event.get("cat", "")
-            phase = event.get("ph", "")
-            ts_us = event.get("ts", None)
+        # Determine communication speed overhead penalty (in ms)
+        comm_latency = 0.002 if interconnect == "NVLink" else 0.050
 
-            if ts_us is not None and self.initial_timestamp_us is None:
-                self.initial_timestamp_us = ts_us
-
-            if phase == "X":
-                raw_duration_us = event.get("dur", 0)
-                raw_duration_ms = raw_duration_us / 1000.0
-                
-                if ts_us is not None:
-                    relative_start_ms = (ts_us - self.initial_timestamp_us) / 1000.0
-                    if relative_start_ms > self.virtual_clock_ms:
-                        self.virtual_clock_ms = relative_start_ms
-
-                if category == "gpu":
-                    simulated_duration = raw_duration_ms * (baseline_gpu_tflops / (target_tflops * target_gpus))
-                else:
-                    simulated_duration = raw_duration_ms
-
-                self.virtual_clock_ms += simulated_duration
-                self.execution_logs.append(
-                    f"[{self.virtual_clock_ms:.3f} ms] Completed [{category.upper()}] Kernel: {name} (Simulated Duration: {simulated_duration:.3f} ms)"
-                )
+        for event in self.trace.get("traceEvents", []):
+            event_type = event.get("type")
+            name = event.get("name", "unknown_kernel")
             
-            elif phase == "C":
-                args = event.get("args", {})
-                value = args.get("value", 0)
+            if event_type == "COMPUTE":
+                # Scale execution duration based on simulated TFLOPS capability vs baseline trace
+                baseline_tflops = event.get("baseline_tflops", 312)
+                raw_duration = event.get("duration_ms", 1.0)
+                simulated_duration = raw_duration * (baseline_tflops / (tflops * gpus))
                 
-                if ts_us is not None:
-                    relative_start_ms = (ts_us - self.initial_timestamp_us) / 1000.0
-                    if relative_start_ms > self.virtual_clock_ms:
-                        self.virtual_clock_ms = relative_start_ms
-
-                if name == "GPU_Memory_Used_GB":
-                    if value > self.max_vram_observed:
-                        self.max_vram_observed = value
-                    
-                    status_flag = "🚨 OVERFLOW FAILURE" if value > total_vram_limit else "STABLE"
-                    self.execution_logs.append(
-                        f"[{self.virtual_clock_ms:.3f} ms] [COUNTER] {name} changed to {value} GB / {total_vram_limit} GB -> Capacity: {status_flag}"
-                    )
+                self.virtual_clock_ms += simulated_duration
+                self.execution_logs.append(f"[{self.virtual_clock_ms:.3f} ms] Executed compute kernel: {name} ({simulated_duration:.3f} ms)")
+                
+            elif event_type == "COMMUNICATION":
+                # Model collective communications penalty (e.g., AllReduce across nodes)
+                data_size_mb = event.get("data_size_mb", 10)
+                transfer_delay = (data_size_mb / 1000.0) + comm_latency
+                
+                self.virtual_clock_ms += transfer_delay
+                self.execution_logs.append(f"[{self.virtual_clock_ms:.3f} ms] Synchronized GPU cluster via {interconnect}: {name} ({transfer_delay:.3f} ms)")
 
         return {
             "total_simulated_time_ms": self.virtual_clock_ms,
-            "peak_vram_tracked_gb": self.max_vram_observed,
-            "vram_limit_gb": total_vram_limit,
             "timeline": self.execution_logs
         }
 
-# --- Phase 2: Micro-Architectural Scaling Engine ---
+# --- Phase 2: Micro-Architectural Analytical Scaling Layer ---
 class FakeLLMScaler:
     def __init__(self, config):
         self.config = config
@@ -120,30 +91,11 @@ class FakeLLMScaler:
         total_required_memory = weight_memory + kv_cache_memory
         total_gpu_memory = g * mem
 
-        # --- Explicit Phase 2 Auto-Parallelism Heuristics ---
-        tp = self.config.get("hardware", {}).get("tensor_parallel_size", 0)
-        pp = self.config.get("hardware", {}).get("pipeline_parallel_size", 0)
+        # Compute topology configurations
+        tp = g if g <= 8 else 8
+        pp = max(1, g // 8)
         
-        if tp == 0 or pp == 0:
-            if g <= 8:
-                tp = g
-                pp = 1
-            else:
-                tp = 8  # Scale out to full single-node NVLink boundary first
-                pp = max(1, g // 8)
-        
-        dp = max(1, g // (tp * pp))
-        
-        # Interconnect Overhead Modeling
-        interconnect = self.config.get("hardware", {}).get("interconnect_type", "NVLink" if tp <= 8 else "InfiniBand")
-        comm_efficiency = 0.95
-        if tp > 1:
-            comm_efficiency -= (0.03 * tp)
-        if pp > 1:
-            bubble_penalty = (pp - 1) / max(1, (batch / dp))
-            comm_efficiency -= min(0.3, bubble_penalty)
-            
-        comm_efficiency = max(0.4, comm_efficiency)
+        comm_efficiency = max(0.4, 0.95 - (0.03 * tp) - ((pp - 1) / max(1, batch / 2)))
 
         base_throughput = ((g * tflops * 40) / m) * (batch ** 0.6) * (2000 / (2000 + seq))
         throughput = base_throughput * comm_efficiency
@@ -152,9 +104,6 @@ class FakeLLMScaler:
         return {
             "model": self.config["model"]["name"],
             "topology": f"{g}x {self.config['hardware']['gpu_type']}",
-            "tp": tp,
-            "pp": pp,
-            "dp": dp,
             "comm_efficiency_pct": comm_efficiency * 100,
             "total_mem_gb": total_gpu_memory,
             "required_mem_gb": total_required_memory,
@@ -180,19 +129,15 @@ def generate_markdown_matrix(config_dir):
             metrics["filename"] = file
             results.append(metrics)
 
-    # --- Phase 2 Columns Visibly Added to GitHub PR Reports ---
-    md = [
-        "### 🚦 `llm-twin` Architectural Simulation Matrix", 
-        "Automated performance validation running Phase 2 Distributed Parallelism & Phase 3 Emulation Pipeline.\n",
-        "| Profile Name | Cluster Setup | Parallel Strategy | Comm Eff | VRAM Allocation | Throughput | Status |",
-        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
-    ]
+    md = ["### 🚦 `llm-twin` Architectural Simulation Matrix", 
+          "Automated performance validation running Phase 2 & 3 Emulation Pipeline.\n",
+          "| Profile Name | Cluster Setup | Comm Efficiency | VRAM Allocation | Throughput | Status |",
+          "| :--- | :--- | :--- | :--- | :--- | :--- |"]
     
     for r in results:
         vram_string = f"{r['required_mem_gb']:.1f} / {r['total_mem_gb']} GB ({r['mem_util_pct']:.1f}%)"
-        strategy_str = f"TP:{r['tp']} \| PP:{r['pp']} \| DP:{r['dp']}"
         status = "✅ PASSED" if r["fits"] else "❌ CRITICAL OOM"
-        md.append(f"| `{r['filename']}` | {r['topology']} | {strategy_str} | {r['comm_efficiency_pct']:.1f}% | {vram_string} | {r['throughput_tok_sec']:,.1f} tok/s | {status} |")
+        md.append(f"| `{r['filename']}` | {r['topology']} | {r['comm_efficiency_pct']:.1f}% | {vram_string} | {r['throughput_tok_sec']:,.1f} tok/s | {status} |")
     
     return "\n".join(md)
 
@@ -200,15 +145,17 @@ def main():
     parser = argparse.ArgumentParser(description="llm-twin orchestration engine")
     sub = parser.add_subparsers(dest="command", required=True)
     
+    # Core Subcommands
     sim = sub.add_parser("simulate")
     sim.add_argument("config")
     
     matrix = sub.add_parser("matrix")
     matrix.add_argument("directory")
 
+    # New Phase 3 Trace Ingestion Subcommand
     trace_cmd = sub.add_parser("emulate-trace")
-    trace_cmd.add_argument("--trace", required=True, help="Path to JSON trace file")
-    trace_cmd.add_argument("--hardware", required=True, help="Target configuration YAML")
+    trace_cmd.add_argument("--trace", required=True, help="Path to JSON execution trace file")
+    trace_cmd.add_argument("--hardware", required=True, help="Target topology configuration YAML")
 
     args = parser.parse_args()
 
@@ -218,11 +165,7 @@ def main():
         cfg = parse_simple_yaml(args.config)
         if cfg:
             m = FakeLLMScaler(cfg).simulate()
-            print(f"\n📈 --- Phase 2 Distributed Simulation Details ---")
-            print(f"Topology Strategy : TP={m['tp']}, PP={m['pp']}, DP={m['dp']}")
-            print(f"Interconnect Eff  : {m['comm_efficiency_pct']:.2f}%")
-            print(f"Throughput Output : {m['throughput_tok_sec']:.2f} tok/s")
-            print(f"VRAM Memory Status: {'Stable' if m['fits'] else 'OOM Failure'}")
+            print(f"Throughput Output: {m['throughput_tok_sec']:.2f} tok/s | VRAM Fits: {m['fits']}")
     elif args.command == "emulate-trace":
         hw_cfg = parse_simple_yaml(args.hardware)
         try:
@@ -235,10 +178,9 @@ def main():
         if hw_cfg and trace_json:
             report = TraceEmulator(trace_json, hw_cfg).run()
             print(f"\n🎯 --- Trace-Driven Simulation Complete ---")
-            print(f"Total Virtual Execution Latency: {report['total_simulated_time_ms']:.4f} ms")
-            print(f"Peak Observed VRAM Context    : {report['peak_vram_tracked_gb']} GB / {report['vram_limit_gb']} GB")
-            print("\n🕒 Timeline Step Breakdown:")
-            for log in report["timeline"]:
+            print(f"Total Virtual Execution Latency: {report['total_simulated_time_ms']:.4f} ms\n")
+            print("🕒 Timeline Step Breakdown:")
+            for log in report["timeline"][:10]: # Print first 10 steps for terminal neatness
                 print(f"  {log}")
 
 if __name__ == "__main__":
