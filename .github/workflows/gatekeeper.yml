@@ -18,14 +18,17 @@ jobs:
         with:
           python-version: '3.10'
 
+      # --- New Step: Automated Quality Assurance Gate ---
+      - name: Run Core Test Suite
+        run: |
+          python3 -m unittest discover -s . -p "test_*.py"
+
       - name: Generate Simulation Matrix
         id: sim_matrix
         run: |
           chmod +x twin.py
-          # Run matrix command pointing to the root configs folder
           REPORT=$(python3 twin.py matrix configs/)
           
-          # Safely handle multi-line outputs for GitHub Actions environment variables
           echo "REPORT<<EOF" >> $GITHUB_ENV
           echo "$REPORT" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
