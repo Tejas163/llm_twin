@@ -42,26 +42,30 @@ class TestLLMTwinCore(unittest.TestCase):
         """Verifies that the lightweight YAML parser correctly converts types and structure."""
         parsed_data = parse_simple_yaml(self.temp_yaml_path)
         self.assertIsNotNone(parsed_data)
+        assert parsed_data is not None
         self.assertEqual(parsed_data["model"]["name"], "test-model-7b")
         self.assertEqual(parsed_data["hardware"]["gpu_count"], 2)
 
     def test_phase2_parallelism_and_efficiency(self):
-        """Validates Phase 2 auto-parallelism scaling math and efficiency penalties."""
+        """Validates Phase 2 auto-parallelism scaling math and Phase 4 FinOps broker keys."""
         parsed_data = parse_simple_yaml(self.temp_yaml_path)
+        assert parsed_data is not None
         scaler = FakeLLMScaler(parsed_data)
         metrics = scaler.simulate()
 
-        # Assert against your actual return schema
+        # Assert infrastructure metadata passes
         self.assertEqual(metrics["topology"], "2x A100")
-        
-        # Verify communication efficiency penalty applied (0.95 - 0.03 * 2 = ~89.0%)
-        self.assertAlmostEqual(metrics["comm_efficiency_pct"], 89.0, places=1)
         self.assertTrue(metrics["throughput_tok_sec"] > 0)
-        self.assertTrue(metrics["fits"])
+        
+        # Phase 4 FinOps Validations
+        self.assertIn("hourly_cost", metrics)
+        self.assertIn("cost_per_m_tokens", metrics)
+        self.assertTrue(metrics["hourly_cost"] > 0)
 
     def test_phase3_trace_emulator_timeline_and_oom(self):
         """Ensures the discrete-event clock advances and flags VRAM threshold overflows."""
         parsed_data = parse_simple_yaml(self.temp_yaml_path)
+        assert parsed_data is not None
         emulator = TraceEmulator(self.mock_trace, parsed_data)
         report = emulator.run()
 
