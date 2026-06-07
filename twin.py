@@ -45,7 +45,6 @@ class TraceEmulator:
         target_gpus = self.hw.get("hardware", {}).get("gpu_count", 1)
         total_vram_limit = target_gpus * self.hw.get("hardware", {}).get("gpu_memory_gb", 80)
         
-        # Reference baseline: typical trace data captured from an unslated standard single A100 node
         baseline_gpu_tflops = 312 
         events = self.trace.get("traceEvents", [])
         
@@ -55,22 +54,18 @@ class TraceEmulator:
             phase = event.get("ph", "")
             ts_us = event.get("ts", None)
 
-            # Establish relative timeline tracking based on the first event's timestamp
             if ts_us is not None and self.initial_timestamp_us is None:
                 self.initial_timestamp_us = ts_us
 
-            # Handle Complete Duration Events (ph="X")
             if phase == "X":
                 raw_duration_us = event.get("dur", 0)
                 raw_duration_ms = raw_duration_us / 1000.0
                 
-                # Check for structural alignment gaps in the trace timeline
                 if ts_us is not None:
                     relative_start_ms = (ts_us - self.initial_timestamp_us) / 1000.0
                     if relative_start_ms > self.virtual_clock_ms:
                         self.virtual_clock_ms = relative_start_ms
 
-                # Scale runtime metrics for GPU accelerated matrix multiplies
                 if category == "gpu":
                     simulated_duration = raw_duration_ms * (baseline_gpu_tflops / (target_tflops * target_gpus))
                 else:
@@ -81,7 +76,6 @@ class TraceEmulator:
                     f"[{self.virtual_clock_ms:.3f} ms] Completed [{category.upper()}] Kernel: {name} (Simulated Duration: {simulated_duration:.3f} ms)"
                 )
             
-            # Handle Real-time Counter Resource Allocation Tracking (ph="C")
             elif phase == "C":
                 args = event.get("args", {})
                 value = args.get("value", 0)
@@ -126,10 +120,30 @@ class FakeLLMScaler:
         total_required_memory = weight_memory + kv_cache_memory
         total_gpu_memory = g * mem
 
-        tp = g if g <= 8 else 8
-        pp = max(1, g // 8)
+        # --- Explicit Phase 2 Auto-Parallelism Heuristics ---
+        tp = self.config.get("hardware", {}).get("tensor_parallel_size", 0)
+        pp = self.config.get("hardware", {}).get("pipeline_parallel_size", 0)
         
-        comm_efficiency = max(0.4, 0.95 - (0.03 * tp) - ((pp - 1) / max(1, batch / 2)))
+        if tp == 0 or pp == 0:
+            if g <= 8:
+                tp = g
+                pp = 1
+            else:
+                tp = 8  # Scale out to full single-node NVLink boundary first
+                pp = max(1, g // 8)
+        
+        dp = max(1, g // (tp * pp))
+        
+        # Interconnect Overhead Modeling
+        interconnect = self.config.get("hardware", {}).get("interconnect_type", "NVLink" if tp <= 8 else "InfiniBand")
+        comm_efficiency = 0.95
+        if tp > 1:
+            comm_efficiency -= (0.03 * tp)
+        if pp > 1:
+            bubble_penalty = (pp - 1) / max(1, (batch / dp))
+            comm_efficiency -= min(0.3, bubble_penalty)
+            
+        comm_efficiency = max(0.4, comm_efficiency)
 
         base_throughput = ((g * tflops * 40) / m) * (batch ** 0.6) * (2000 / (2000 + seq))
         throughput = base_throughput * comm_efficiency
@@ -138,6 +152,9 @@ class FakeLLMScaler:
         return {
             "model": self.config["model"]["name"],
             "topology": f"{g}x {self.config['hardware']['gpu_type']}",
+            "tp": tp,
+            "pp": pp,
+            "dp": dp,
             "comm_efficiency_pct": comm_efficiency * 100,
             "total_mem_gb": total_gpu_memory,
             "required_mem_gb": total_required_memory,
@@ -163,15 +180,19 @@ def generate_markdown_matrix(config_dir):
             metrics["filename"] = file
             results.append(metrics)
 
-    md = ["### 🚦 `llm-twin` Architectural Simulation Matrix", 
-          "Automated performance validation running Phase 2 & 3 Emulation Pipeline.\n",
-          "| Profile Name | Cluster Setup | Comm Efficiency | VRAM Allocation | Throughput | Status |",
-          "| :--- | :--- | :--- | :--- | :--- | :--- |"]
+    # --- Phase 2 Columns Visibly Added to GitHub PR Reports ---
+    md = [
+        "### 🚦 `llm-twin` Architectural Simulation Matrix", 
+        "Automated performance validation running Phase 2 Distributed Parallelism & Phase 3 Emulation Pipeline.\n",
+        "| Profile Name | Cluster Setup | Parallel Strategy | Comm Eff | VRAM Allocation | Throughput | Status |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+    ]
     
     for r in results:
         vram_string = f"{r['required_mem_gb']:.1f} / {r['total_mem_gb']} GB ({r['mem_util_pct']:.1f}%)"
+        strategy_str = f"TP:{r['tp']} \| PP:{r['pp']} \| DP:{r['dp']}"
         status = "✅ PASSED" if r["fits"] else "❌ CRITICAL OOM"
-        md.append(f"| `{r['filename']}` | {r['topology']} | {r['comm_efficiency_pct']:.1f}% | {vram_string} | {r['throughput_tok_sec']:,.1f} tok/s | {status} |")
+        md.append(f"| `{r['filename']}` | {r['topology']} | {strategy_str} | {r['comm_efficiency_pct']:.1f}% | {vram_string} | {r['throughput_tok_sec']:,.1f} tok/s | {status} |")
     
     return "\n".join(md)
 
@@ -197,7 +218,11 @@ def main():
         cfg = parse_simple_yaml(args.config)
         if cfg:
             m = FakeLLMScaler(cfg).simulate()
-            print(f"Throughput Output: {m['throughput_tok_sec']:.2f} tok/s | VRAM Fits: {m['fits']}")
+            print(f"\n📈 --- Phase 2 Distributed Simulation Details ---")
+            print(f"Topology Strategy : TP={m['tp']}, PP={m['pp']}, DP={m['dp']}")
+            print(f"Interconnect Eff  : {m['comm_efficiency_pct']:.2f}%")
+            print(f"Throughput Output : {m['throughput_tok_sec']:.2f} tok/s")
+            print(f"VRAM Memory Status: {'Stable' if m['fits'] else 'OOM Failure'}")
     elif args.command == "emulate-trace":
         hw_cfg = parse_simple_yaml(args.hardware)
         try:
