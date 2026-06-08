@@ -135,7 +135,7 @@ with left_panel:
     
     st.write(f"**Calculated Fabric Scaling Efficiency:** {metrics['comm_efficiency_pct']:.2f}%")
     st.progress(int(metrics['comm_efficiency_pct']))
-    
+
 with right_panel:
     st.subheader("💾 VRAM Allocation Breakdown")
     util_percentage = min(100.0, metrics['mem_util_pct'])

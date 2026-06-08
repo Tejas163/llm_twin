@@ -146,32 +146,39 @@ class FakeLLMScaler:
         dp = max(1, g // (tp * pp))
         
         # --- Phase 6: High-Fidelity Network Fabric Simulation Math ---
-        # 1. Define physical wire thresholds (in GB/s)
-        NVLINK_BANDWIDTH = 900.0      # Blistering intra-node speeds
-        INFINIBAND_BANDWIDTH = 50.0   # 400 Gbps external interconnect caps
+        NVLINK_BANDWIDTH = 900.0      
+        INFINIBAND_BANDWIDTH = 50.0   
         
-        # 2. Compute the exact All-Reduce payload per layer (in Gigabytes)
+        # Calculate true activation payloads
         tp_factor = (tp - 1) / max(1, tp)
         activation_payload_bytes = 2 * tp_factor * batch * seq * hidden_size * 2
         payload_gb = activation_payload_bytes / 1e9
 
-        # 3. Determine active routing fabric based on structural configuration
-        if tp <= 8:
-            # Communication stays cleanly inside the ultra-fast NVLink node
+        # FIX: Check if the strategy or the total cluster size overflows a single 8-GPU node
+        if tp <= 8 and (g <= 8 or (pp == 1 and dp == 1)):
+            # Communication stays purely inside the ultra-fast internal node
             effective_bandwidth = NVLINK_BANDWIDTH
             fabric_type = "NVLink Mesh"
+            
+            # Standard high-speed scaling efficiency
+            compute_time_ms = (seq * m * 2) / (tflops * 1e3)
+            network_latency_ms = (payload_gb / effective_bandwidth) * 1000.0
+            comm_efficiency = compute_time_ms / (compute_time_ms + network_latency_ms)
         else:
-            # CRITICAL WARNING: TP has spilled across server nodes onto InfiniBand lines!
+            # INTERCONNECT BOTTLENECK: Workload crosses nodes over the network interface cards
             effective_bandwidth = INFINIBAND_BANDWIDTH
             fabric_type = "InfiniBand Switch Network"
+            
+            # Calculate cross-node latency stalls
+            compute_time_ms = (seq * m * 2) / (tflops * 1e3)
+            network_latency_ms = (payload_gb / effective_bandwidth) * 1000.0
+            
+            # Apply a harsh network communication penalty for inter-node scaling delays
+            comm_efficiency = compute_time_ms / (compute_time_ms + (network_latency_ms * 3.5))
+            if pp > 1:
+                comm_efficiency *= 0.70  # Model pipeline bubble stalls across the wires
 
-        # Calculate time spent on communication vs raw TFLOPS compute time
-        network_latency_ms = (payload_gb / effective_bandwidth) * 1000.0
-        compute_time_ms = (seq * m * 2) / (tflops * 1e3)
-        
-        # Communication Efficiency is derived strictly from data transfer stalls
-        comm_efficiency = compute_time_ms / (compute_time_ms + network_latency_ms)
-        
+        comm_efficiency = max(0.05, min(0.99, comm_efficiency))
         # Severe penalty if pipeline bubbles are introduced by bad splits across nodes
         if pp > 1 and fabric_type == "InfiniBand Switch Network":
             comm_efficiency *= 0.75 
@@ -251,7 +258,7 @@ def generate_markdown_matrix(config_dir):
     ]
     
     for r in results:
-        strategy_str = f"TP:{r['tp']} \| PP:{r['pp']} \| DP:{r['dp']}"
+        strategy_str = f"TP:{r['tp']} | PP:{r['pp']} | DP:{r['dp']}"
         cost_str = f"${r['hourly_cost']:.2f}/hr ({r['billing']})"
         m_tokens_str = f"${r['cost_per_m_tokens']:.4f}"
         status = "✅ PASSED" if r["fits"] else "❌ CRITICAL OOM"
