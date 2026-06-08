@@ -118,15 +118,23 @@ with col4:
 st.markdown("---")
 
 # --- Deep Architectural Breakdown Sections ---
+# --- Deep Architectural Breakdown Sections ---
 left_panel, right_panel = st.columns(2)
 
 with left_panel:
-    st.subheader("📊 Distributed Cluster Strategies")
-    st.info(f"**Auto-Selected Parallel Split Strategy:** TP={metrics['tp']} | PP={metrics['pp']} | DP={metrics['dp']}")
+    st.subheader("📊 Distributed Fabric Topologies")
     
-    st.write(f"**Interconnect Bus Scaling Efficiency:** {metrics['comm_efficiency_pct']:.2f}%")
+    # Showcase active structural wire layers dynamically
+    if metrics["fabric_type"] == "NVLink Mesh":
+        st.success(f"🔗 Active Interconnect Fabric: {metrics['fabric_type']} (900 GB/s)")
+    else:
+        st.warning(f"🚨 Active Interconnect Fabric: {metrics['fabric_type']} (50 GB/s Network Bottleneck)")
+        
+    st.info(f"**Auto-Selected Parallel Split Strategy:** TP={metrics['tp']} | PP={metrics['pp']} | DP={metrics['dp']}")
+    st.metric("All-Reduce Layer Payload Size", f"{metrics['payload_gb']:.4f} GB")
+    
+    st.write(f"**Calculated Fabric Scaling Efficiency:** {metrics['comm_efficiency_pct']:.2f}%")
     st.progress(int(metrics['comm_efficiency_pct']))
-    st.caption(f"Evaluating {selected_cloud} network overhead metrics. Hyperscaler fabrics factor in distinct cross-node pipeline stalls.")
 
 with right_panel:
     st.subheader("💾 VRAM Allocation Breakdown")

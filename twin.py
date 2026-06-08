@@ -122,13 +122,16 @@ class FakeLLMScaler:
         batch = self.config["inference"]["batch_size"]
         seq = self.config["inference"]["sequence_length"]
 
+        # Real-world structural hidden dimension mapping (Llama style scales)
+        hidden_size = 8192 if m >= 70 else (12288 if m >= 400 else 4096)
+
         weight_memory = m * 2
         kv_cache_per_token_gb = (m * 1.5e-6 + 4e-5)
         kv_cache_memory = kv_cache_per_token_gb * seq * batch
         total_required_memory = weight_memory + kv_cache_memory
         total_gpu_memory = g * mem
 
-        # --- Phase 2 Auto-Parallelism Strategy Engine ---
+        # --- Phase 2 & 6 Auto-Parallelism Strategy Engine ---
         tp = self.config.get("hardware", {}).get("tensor_parallel_size", 0)
         pp = self.config.get("hardware", {}).get("pipeline_parallel_size", 0)
         
@@ -142,19 +145,62 @@ class FakeLLMScaler:
         
         dp = max(1, g // (tp * pp))
         
-        comm_efficiency = 0.95
-        if tp > 1: comm_efficiency -= (0.03 * tp)
-        if pp > 1: comm_efficiency -= min(0.3, ((pp - 1) / max(1, (batch / dp))))
-        comm_efficiency = max(0.4, comm_efficiency)
+        # --- Phase 6: High-Fidelity Network Fabric Simulation Math ---
+        NVLINK_BANDWIDTH = 900.0      
+        INFINIBAND_BANDWIDTH = 50.0   
+        
+        # Calculate true activation payloads
+        tp_factor = (tp - 1) / max(1, tp)
+        activation_payload_bytes = 2 * tp_factor * batch * seq * hidden_size * 2
+        payload_gb = activation_payload_bytes / 1e9
 
+        # FIX: Check if the strategy or the total cluster size overflows a single 8-GPU node
+        if tp <= 8 and (g <= 8 or (pp == 1 and dp == 1)):
+            # Communication stays purely inside the ultra-fast internal node
+            effective_bandwidth = NVLINK_BANDWIDTH
+            fabric_type = "NVLink Mesh"
+            
+            # Standard high-speed scaling efficiency
+            compute_time_ms = (seq * m * 2) / (tflops * 1e3)
+            network_latency_ms = (payload_gb / effective_bandwidth) * 1000.0
+            comm_efficiency = compute_time_ms / (compute_time_ms + network_latency_ms)
+        else:
+            # INTERCONNECT BOTTLENECK: Workload crosses nodes over the network interface cards
+            effective_bandwidth = INFINIBAND_BANDWIDTH
+            fabric_type = "InfiniBand Switch Network"
+            
+            # Calculate cross-node latency stalls
+            compute_time_ms = (seq * m * 2) / (tflops * 1e3)
+            network_latency_ms = (payload_gb / effective_bandwidth) * 1000.0
+            
+            # Apply a harsh network communication penalty for inter-node scaling delays
+            comm_efficiency = compute_time_ms / (compute_time_ms + (network_latency_ms * 3.5))
+            if pp > 1:
+                comm_efficiency *= 0.70  # Model pipeline bubble stalls across the wires
+
+        comm_efficiency = max(0.05, min(0.99, comm_efficiency))
+        # Severe penalty if pipeline bubbles are introduced by bad splits across nodes
+        if pp > 1 and fabric_type == "InfiniBand Switch Network":
+            comm_efficiency *= 0.75 
+        
+        comm_efficiency = max(0.1, min(0.99, comm_efficiency))
+
+        # Re-map standard outputs using our new high-fidelity fabric parameters
         base_throughput = ((g * tflops * 40) / m) * (batch ** 0.6) * (2000 / (2000 + seq))
         throughput = base_throughput * comm_efficiency
         latency = ((seq * m) / (g * 2500)) / comm_efficiency
 
-        # --- Phase 4: Cloud Financial Broker Calculation ---
+        # --- Phase 4 FinOps Pricing Engine ---
         econ = self.config.get("economics", {})
         provider = econ.get("provider_type", "specialized")
         billing = econ.get("billing_model", "on-demand")
+
+        self.pricing_matrix = {
+            "A100_40GB": {"hyperscaler": 3.25, "specialized": 1.35, "reserved": 0.95},
+            "A100": {"hyperscaler": 4.00, "specialized": 1.75, "reserved": 1.30},
+            "H100": {"hyperscaler": 5.10, "specialized": 2.45, "reserved": 1.95},
+            "H200": {"hyperscaler": 6.85, "specialized": 3.75, "reserved": 2.95}
+        }
 
         lookup_key = f"{gpu_type}_{mem}GB" if f"{gpu_type}_{mem}GB" in self.pricing_matrix else gpu_type
         rates = self.pricing_matrix.get(lookup_key, {"hyperscaler": 4.0, "specialized": 2.0, "reserved": 1.5})
@@ -165,8 +211,6 @@ class FakeLLMScaler:
             hourly_gpu_rate = rates["hyperscaler"] if provider == "hyperscaler" else rates["specialized"]
 
         hourly_cluster_cost = g * hourly_gpu_rate
-        
-        # Cost per Million Tokens equation mapping
         tokens_per_hour = throughput * 3600
         cost_per_m_tokens = (hourly_cluster_cost / tokens_per_hour) * 1000000 if tokens_per_hour > 0 else 0.0
 
@@ -184,7 +228,9 @@ class FakeLLMScaler:
             "hourly_cost": hourly_cluster_cost,
             "cost_per_m_tokens": cost_per_m_tokens,
             "provider": provider,
-            "billing": billing
+            "billing": billing,
+            "fabric_type": fabric_type,
+            "payload_gb": payload_gb
         }
 
 def generate_markdown_matrix(config_dir):
@@ -212,7 +258,7 @@ def generate_markdown_matrix(config_dir):
     ]
     
     for r in results:
-        strategy_str = f"TP:{r['tp']} \| PP:{r['pp']} \| DP:{r['dp']}"
+        strategy_str = f"TP:{r['tp']} | PP:{r['pp']} | DP:{r['dp']}"
         cost_str = f"${r['hourly_cost']:.2f}/hr ({r['billing']})"
         m_tokens_str = f"${r['cost_per_m_tokens']:.4f}"
         status = "✅ PASSED" if r["fits"] else "❌ CRITICAL OOM"
