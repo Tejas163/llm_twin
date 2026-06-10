@@ -2,6 +2,10 @@ import streamlit as st  # type: ignore[import]
 import os
 # Import your verified engine classes directly from your production code
 from twin import FakeLLMScaler, EvolutionaryAgent
+from storage import init_db, save_scenario, list_scenarios, load_scenario_by_name
+
+# --- Initialize Local Storage ---
+init_db()
 
 # --- Page Custom Configuration ---
 st.set_page_config(
@@ -159,11 +163,86 @@ if st.sidebar.button("Run Evolutionary Agent Optimizer", type="primary"):
         "Fabric Type": opt_metrics["fabric_type"]
     })
 
+    # --- Scroll down to the very bottom of the sidebar definition code ---
+# Locate right below the "Winner DNA Blueprint" card block, before main navigation logic
+
+st.sidebar.markdown("---")
+st.sidebar.header("💾 Workspace Snapshot Manager")
+st.sidebar.write("Persist your active configurations and FinOps evaluations to the local team vault.")
+
+# Gather enterprise metadata tags
+with st.sidebar.form("snapshot_form", clear_on_submit=True):
+    snapshot_name = st.text_input("Scenario Snapshot Name", placeholder="e.g., Llama-3 70B Production Scale")
+    project_tag = st.text_input("Project / Team Tag", value="Core Infrastructure")
+    
+    # Determine which state payload to snapshot (Manual vs Agent Optimized)
+    target_source = st.radio("Capture Strategy Target", ["Active Manual Workspace", "Agent Optimized Champion"])
+    
+    submit_snapshot = st.form_submit_button("Commit Scenario to Vault", type="secondary")
+
+if submit_snapshot:
+    if not snapshot_name.strip():
+        st.sidebar.error("❌ Scenario Snapshot Name cannot be blank!")
+    else:
+        # Resolve the active payload configuration based on user selection
+        if target_source == "Agent Optimized Champion" and st.session_state["agent_optimized"]:
+            cfg_to_save = {
+                "model": {"name": selected_model_name, "parameters_billion": param_size},
+                "hardware": {
+                    "gpu_type": st.session_state["gpu_type_opt"],
+                    "gpu_count": st.session_state["gpu_count_opt"],
+                    "gpu_memory_gb": st.session_state["gpu_mem_opt"],
+                    "gpu_tflops": 1979 if st.session_state["gpu_type_opt"] == "H200" else (989 if st.session_state["gpu_type_opt"] == "H100" else 312)
+                },
+                "inference": {"batch_size": batch_size, "sequence_length": seq_len},
+                "economics": {"provider_type": provider_type, "billing_model": billing_model}
+            }
+        else:
+            # Fallback to current manual configuration metrics
+            cfg_to_save = {
+                "model": {"name": selected_model_name, "parameters_billion": param_size},
+                "hardware": {
+                    "gpu_type": gpu_type, "gpu_count": gpu_count, "gpu_memory_gb": gpu_mem, "gpu_tflops": gpu_tflops
+                },
+                "inference": {"batch_size": batch_size, "sequence_length": seq_len},
+                "economics": {"provider_type": provider_type, "billing_model": billing_model}
+            }
+            
+        # Run a quick high-fidelity simulation to ensure saved outputs are fresh
+        metrics_to_save = FakeLLMScaler(cfg_to_save).simulate()
+        
+        # Dispatch to the SQLite core database engine
+        success, message = save_scenario(
+            name=snapshot_name.strip(),
+            project_tag=project_tag.strip(),
+            model_name=selected_model_name,
+            param_billion=param_size,
+            config_dict=cfg_to_save,
+            metrics_dict=metrics_to_save
+        )
+        
+        if success:
+            st.sidebar.success(f"✅ {message}")
+            # Force front-end redraw to ensure downstream tables pick up the new records instantly
+            st.rerun()
+        else:
+            st.sidebar.error(message)
+
+# --- Main Dashboard Core Navigation Hub ---
 # --- Main Dashboard Core Navigation Hub ---
 if st.session_state["agent_optimized"]:
-    tab_manual, tab_agent = st.tabs(["📋 Manual Configuration Workspace", "🧬 Agent Optimized Sandbox View"])
+    # Expose all three major corporate tabs if an agent run exists
+    tab_manual, tab_agent, tab_vault = st.tabs([
+        "📋 Manual Configuration Workspace", 
+        "🧬 Agent Optimized Sandbox View", 
+        "🏛️ Saved Blueprints Vault"
+    ])
 else:
-    tab_manual = st.tabs(["📋 Manual Configuration Workspace"])[0]
+    # Expose manual and vault tabs by default on clean boot
+    tab_manual, tab_vault = st.tabs([
+        "📋 Manual Configuration Workspace", 
+        "🏛️ Saved Blueprints Vault"
+    ])
     tab_agent = None
 
 # ==================== SCREEN 1: MANUAL WORKSPACE ====================
@@ -323,6 +402,57 @@ if tab_agent is not None:
                 st.warning("⚠️ **OPEX ALERT:** True TCO is elevated due to egress taxes or fabric bottlenecking.")
             else:
                 st.success("🚀 **PROCEED TO DEPLOYMENT:** This architecture configuration represents optimized unit economics.")
+
+# ==================== SCREEN 3: SAVED BLUEPRINTS VAULT ====================
+with tab_vault:
+    st.markdown("## 🏛️ Enterprise Saved Blueprints Vault")
+    st.markdown("Query, audit, and deep-dive into historical topology snapshots committed by engineering teams.")
+    
+    # Query fresh records directly from the SQLite database
+    saved_records = list_scenarios()
+    
+    if not saved_records:
+        st.info("The local blueprint vault is currently empty. Use the sidebar form to capture a workspace snapshot!")
+    else:
+        # Format the summary records into a scannable table overview
+        st.markdown("### 📋 Historical Scenario Logs")
+        st.table(saved_records)
+        
+        st.markdown("---")
+        st.markdown("### 🔍 Deep-Dive Scenario Inspector")
+        
+        # Dropdown selection to inspect an explicit record
+        record_names = [r["name"] for r in saved_records]
+        selected_record = st.selectbox("Choose a Scenario Snapshot to Inspect", record_names)
+        
+        if selected_record:
+            # Load json blobs from SQLite storage engine
+            saved_cfg, saved_metrics = load_scenario_by_name(selected_record)
+            
+            if saved_cfg and saved_metrics:
+                # Construct 4-column layout mirroring active workspace metrics
+                v_col1, v_col2, v_col3, v_col4 = st.columns(4)
+                
+                with v_col1:
+                    if saved_metrics["fits"]:
+                        st.success("🚨 Memory Status: STABLE")
+                    else:
+                        st.error("🚨 Memory Status: CRITICAL OOM")
+                        
+                v_col2.metric("Archived Throughput", f"{saved_metrics['throughput_tok_sec']:,.2f} tok/s")
+                v_col3.metric("Archived Hourly Bill", f"${saved_metrics['hourly_cost']:.2f} / hr")
+                v_col4.metric("Risk-Adjusted TCO/M", f"${saved_metrics['tco_per_m_tokens']:.4f}")
+                
+                # Render technical layout details
+                v_panel_l, v_panel_r = st.columns(2)
+                with v_panel_l:
+                    st.subheader("⚙️ Hardware Architecture")
+                    st.json(saved_cfg["hardware"])
+                with v_panel_r:
+                    st.subheader("💰 FinOps Economics & Routing")
+                    st.write(f"**Fabric Interconnect:** {saved_metrics['fabric_type']}")
+                    st.write(f"**Procurement Contract:** {saved_metrics['billing'].upper()} ({saved_cfg['economics']['provider_type'].upper()})")
+                    st.info(f"**Archived Posture:**\n\n{saved_metrics['strategy_label']}")
 
 # Add a permanent risk governance advisory table for board reviews
 st.markdown("---")
