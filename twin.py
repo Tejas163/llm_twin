@@ -3,6 +3,8 @@ import argparse
 import sys
 import os
 import json
+import random
+
 
 # --- Pure-Python Lightweight YAML Parser ---
 def parse_simple_yaml(filepath):
@@ -235,6 +237,167 @@ class FakeLLMScaler:
             "sla_risk_pct": (sla_risk_multiplier - 1.0) * 100
         }
 
+
+# --- Phase 8: Pure-Python Nature-Inspired Evolutionary Agent ---
+class EvolutionaryAgent:
+    def __init__(self, target_model_name, param_billion, constraints):
+        self.model_name = target_model_name
+        self.param_billion = param_billion
+        self.constraints = constraints  # e.g., {"max_tco": 5.0, "provider": "specialized", "billing": "on-demand"}
+        
+        # Define search spaces for our genetic pools
+        self.gpu_types = ["A100", "H100", "H200"]
+        self.vram_options = [40, 80, 141]
+        self.cluster_sizes = [1, 2, 4, 8, 16, 32, 64]
+
+    def generate_random_chromosome(self):
+        """Generates a random valid architectural DNA sequence."""
+        gpu_idx = random.randint(0, len(self.gpu_types) - 1)
+        vram_idx = random.randint(0, len(self.vram_options) - 1)
+        count_idx = random.randint(0, len(self.cluster_sizes) - 1)
+        
+        # Initialize parallelism exponents randomly
+        tp_exp = random.randint(0, 3)  # 2^0 to 2^3 (1 to 8)
+        pp_exp = random.randint(0, 3)  # 2^0 to 2^3 (1 to 8)
+        
+        return [gpu_idx, vram_idx, count_idx, tp_exp, pp_exp]
+
+    def mutate_chromosome(self, chromosome, mutation_rate=0.2):
+        """Applies nature-inspired mutations to keep genetic diversity high."""
+        mutated = list(chromosome)
+        
+        if random.random() < mutation_rate:
+            # Mutate GPU Type
+            mutated[0] = random.randint(0, len(self.gpu_types) - 1)
+        if random.random() < mutation_rate:
+            # Mutate VRAM Capacity
+            mutated[1] = random.randint(0, len(self.vram_options) - 1)
+        if random.random() < mutation_rate:
+            # Mutate Cluster Size count
+            mutated[2] = random.randint(0, len(self.cluster_sizes) - 1)
+        if random.random() < mutation_rate:
+            # Mutate Tensor Parallel Size
+            mutated[3] = random.randint(0, 3)
+        if random.random() < mutation_rate:
+            # Mutate Pipeline Parallel Size
+            mutated[4] = random.randint(0, 3)
+            
+        return mutated
+
+    def chromosome_to_config(self, chromosome):
+        """Translates the digital DNA array back into an engine readable config structure."""
+        g_count = self.cluster_sizes[chromosome[2]]
+        tp = 2 ** chromosome[3]
+        pp = 2 ** chromosome[4]
+        
+        # Enforce physical reality limits (TP*PP cannot exceed total hardware allocated)
+        if tp * pp > g_count:
+            # Adjust strategy down to fit the cluster boundary constraints safely
+            tp = min(g_count, 8)
+            pp = max(1, g_count // tp)
+
+        gpu_t = self.gpu_types[chromosome[0]]
+        gpu_m = self.vram_options[chromosome[1]]
+        
+        # Auto-match real performance parameters
+        gpu_tflops = 989 if gpu_t == "H100" else (156 if gpu_m == 40 else 312)
+        if gpu_t == "H200": gpu_tflops = 1979
+
+        return {
+            "model": {"name": self.model_name, "parameters_billion": self.param_billion},
+            "hardware": {
+                "gpu_type": gpu_t,
+                "gpu_count": g_count,
+                "gpu_memory_gb": gpu_m,
+                "gpu_tflops": gpu_tflops,
+                "tensor_parallel_size": tp,
+                "pipeline_parallel_size": pp
+            },
+            "inference": {"batch_size": 32, "sequence_length": 2048},  # Normalized baseline workload
+            "economics": {
+                "provider_type": self.constraints.get("provider", "specialized"), 
+                "billing_model": self.constraints.get("billing", "on-demand")
+            }
+        }
+    
+    def calculate_fitness(self, chromosome):
+        """Evaluates how optimal an infrastructure setup is."""
+        config = self.chromosome_to_config(chromosome)
+        metrics = FakeLLMScaler(config).simulate()
+        
+        # Hard Failure Constraint: If it OOMs, it gets zero survival value
+        if not metrics["fits"]:
+            return 0.0001
+        
+        # Target optimization parameters
+        tco = metrics["tco_per_m_tokens"]
+        latency = metrics["latency_ms"]
+        
+        # We want to minimize TCO and keep latency fast. 
+        # Fitness = 1 / (TCO * Latency Penalty Factor)
+        latency_penalty = max(1.0, latency / 10.0)  # Penalize slow response profiles
+        
+        # Prevent division by zero if cost is ultra-low
+        fitness_score = 1000.0 / (max(0.01, tco) * latency_penalty)
+        return fitness_score
+
+    def run_optimization(self, population_size=20, generations=30, progress_callback=None):
+        """Runs the evolutionary search to find the optimal deployment layout."""
+        # Initialize an initial diverse population
+        population = [self.generate_random_chromosome() for _ in range(population_size)]
+        
+        best_chromosome = None
+        best_fitness = -1.0
+        
+        for gen in range(generations):
+            # 1. Calculate fitness for all variants
+            fitness_scores = [self.calculate_fitness(chrom) for chrom in population]
+            
+            # Track the historical elite champion
+            for idx, score in enumerate(fitness_scores):
+                if score > best_fitness:
+                    best_fitness = score
+                    best_chromosome = list(population[idx])
+            
+            if progress_callback:
+                progress_callback(gen + 1, generations, best_fitness)
+                
+            # 2. Selection (Roulette Wheel Mechanics)
+            total_fit = sum(fitness_scores)
+            if total_fit == 0:
+                total_fit = 1.0
+            probabilities = [score / total_fit for score in fitness_scores]
+            
+            next_generation = []
+            
+            # Keep the elite champion alive (Elitism)
+            if best_chromosome:
+                next_generation.append(list(best_chromosome))
+                
+            # 3. Breed the remaining population slots
+            while len(next_generation) < population_size:
+                # Select parents based on performance probabilities
+                parent1 = random.choices(population, weights=probabilities, k=1)[0]
+                parent2 = random.choices(population, weights=probabilities, k=1)[0]
+                
+                # Crossover (Single-Point Split)
+                if random.random() < 0.7:  # 70% Crossover Rate
+                    cut = random.randint(1, 3)
+                    child = parent1[:cut] + parent2[cut:]
+                else:
+                    child = list(parent1)
+                    
+                # Apply Random Mutation
+                child = self.mutate_chromosome(child, mutation_rate=0.25)
+                next_generation.append(child)
+                
+            population = next_generation
+
+        # Translate the winning champion DNA back into a final actionable profile
+        optimal_config = self.chromosome_to_config(best_chromosome)
+        optimal_metrics = FakeLLMScaler(optimal_config).simulate()
+        return optimal_config, optimal_metrics
+    
 def generate_markdown_matrix(config_dir):
     if not os.path.isdir(config_dir):
         print(f"Error: Directory '{config_dir}' does not exist.")

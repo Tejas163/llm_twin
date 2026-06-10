@@ -1,7 +1,7 @@
-import streamlit as st
+import streamlit as st  # type: ignore[import]
 import os
 # Import your verified engine classes directly from your production code
-from twin import FakeLLMScaler
+from twin import FakeLLMScaler, EvolutionaryAgent
 
 # --- Page Custom Configuration ---
 st.set_page_config(
@@ -80,6 +80,68 @@ provider_type = cloud_mapping[selected_cloud]
 
 billing_model = st.sidebar.radio("Contract Procurement Type", ["on-demand", "reserved"])
 
+# --- Locate the bottom of the sidebar configuration hub section ---
+st.sidebar.markdown("---")
+st.sidebar.header("🤖 Nature-Inspired Architecture Agent")
+st.sidebar.write("Let the Evolutionary Agent find the absolute mathematically optimal cluster configuration for this workload.")
+
+# Choose optimization targets
+optimization_metric = st.sidebar.selectbox("Optimization Priority", ["Minimize TCO (Balanced Latency)", "Max Speed (Under Cap)"])
+
+if st.sidebar.button("Run Evolutionary Agent Optimizer", type="primary"):
+    st.sidebar.info("🧬 Starting Genetic Algorithm Initialization...")
+    
+    # Establish optimization boundaries dynamically
+    agent_constraints = {
+        "provider": provider_type,
+        "billing": billing_model,
+        "priority": optimization_metric
+    }
+    
+    # Instantiate the agent
+    agent = EvolutionaryAgent(
+        target_model_name=selected_model_name,
+        param_billion=param_size,
+        constraints=agent_constraints
+    )
+    
+    # Create visual placeholders for live generation tracking
+    progress_bar = st.sidebar.progress(0)
+    status_text = st.sidebar.empty()
+    
+    # Define a callback hook to feed loop metrics back into Streamlit real-time
+    def update_evolution_progress(current_gen, total_gens, best_fit):
+        pct = int((current_gen / total_gens) * 100)
+        progress_bar.progress(pct)
+        status_text.caption(f"Gen {current_gen}/{total_gens} | Top Fitness Score: {best_fit:.2f}")
+
+    # Fire up the search loop across generations
+    with st.spinner("Breeding optimal cluster strategies..."):
+        opt_config, opt_metrics = agent.run_optimization(
+            population_size=20, 
+            generations=30, 
+            progress_callback=update_evolution_progress
+        )
+    
+    st.sidebar.success("✅ Optimal Configuration Discovered!")
+    
+    # Store the agent's recommended parameters in session state to auto-adjust sliders
+    st.session_state["gpu_type_opt"] = opt_config["hardware"]["gpu_type"]
+    st.session_state["gpu_count_opt"] = opt_config["hardware"]["gpu_count"]
+    st.session_state["gpu_mem_opt"] = opt_config["hardware"]["gpu_memory_gb"]
+    st.session_state["tp_opt"] = opt_config["hardware"]["tensor_parallel_size"]
+    st.session_state["pp_opt"] = opt_config["hardware"]["pipeline_parallel_size"]
+    
+    # Render an explicit alert card showcasing the winning chromosome's traits
+    st.sidebar.markdown("### 🏆 Winner DNA Blueprint")
+    st.sidebar.json({
+        "Recommended Cluster": f"{opt_config['hardware']['gpu_count']}x {opt_config['hardware']['gpu_type']} ({opt_config['hardware']['gpu_memory_gb']}GB)",
+        "Parallel Strategy": f"TP={opt_config['hardware']['tensor_parallel_size']} | PP={opt_config['hardware']['pipeline_parallel_size']}",
+        "Projected Raw Cost/M": f"${opt_metrics['cost_per_m_tokens']:.4f}",
+        "Risk-Adjusted TCO/M": f"${opt_metrics['tco_per_m_tokens']:.4f}",
+        "Fabric Type": opt_metrics["fabric_type"]
+    })
+    
 # --- Interface Core State Mapping ---
 mock_config = {
     "model": {"name": selected_model_name, "parameters_billion": param_size},
