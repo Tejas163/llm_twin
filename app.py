@@ -146,3 +146,39 @@ with right_panel:
 st.markdown("---")
 st.subheader("📁 Generated Infrastructure Blueprint Configuration")
 st.json(mock_config)
+
+st.markdown("---")
+st.header("👔 Executive Strategy & Capacity Planning Matrix")
+
+# Create a clean 3-column layout for enterprise metrics
+strat_col1, strat_col2, strat_col3 = st.columns(3)
+
+with strat_col1:
+    st.subheader("📌 Corporate Alignment")
+    st.info(f"**Active Operational Posture:** \n\n {metrics['strategy_label']}")
+    st.write(f"**Vendor SLA Risk Premium:** {metrics['sla_risk_pct']:.1f}%")
+    st.caption("A risk premium is mathematically applied to asset-light specialized clouds to model potential capacity availability and volatility overhead.")
+
+with strat_col2:
+    st.subheader("💰 True Total Cost of Ownership (TCO)")
+    st.metric("Risk-Adjusted Cost / M Tokens", f"${metrics['tco_per_m_tokens']:.4f}")
+    st.write(f"**Baseline Raw Compute Cost:** ${metrics['cost_per_m_tokens']:.4f} / M tokens")
+    st.write(f"**Network Data Egress Tax:** ${metrics['egress_fee']:.4f} / M tokens")
+
+with strat_col3:
+    st.subheader("📢 Solution Architect Recommendation")
+    
+    # Dynamically generate executive advice based on simulation boundaries
+    if not metrics["fits"]:
+        st.error("🛑 **HOLD PROVISIONING:** Current model configuration triggers a Critical OOM. Do not sign cloud vendor commitments under these cluster parameters.")
+    elif metrics["tco_per_m_tokens"] > 5.0:
+        st.warning("⚠️ **OPEX ALERT:** True TCO is elevated due to networking fabric bottlenecks or hyperscaler egress taxes. Recommend renegotiating reserved instance contracts or scaling batch configurations.")
+    else:
+        st.success("🚀 **PROCEED TO DEPLOYMENT:** This architecture configuration represents optimized unit economics. Financial margins fit cleanly within enterprise production targets.")
+
+# Add a permanent risk governance advisory table for board reviews
+st.markdown("### 📊 Multi-Cloud Vendor Risk Concentration Matrix")
+st.table([
+    {"Dimension": "Tier-1 Hyperscalers (AWS/GCP/Azure)", "Cost Efficiency": "Low (Premium Markups)", "SLA & Uptime": "99.99% Guaranteed", "Egress Fees": "High ($0.12/M tokens tax)", "Strategic Fit": "Highly Conservative / Enterprise Scales"},
+    {"Dimension": "Specialized GPU Clouds (CoreWeave/Lambda)", "Cost Efficiency": "High (Bare-Metal Rates)", "SLA & Uptime": "Variable / Volatile", "Egress Fees": "Zero Egress", "Strategic Fit": "Agile / High-Throughput Batch Inference"}
+])
