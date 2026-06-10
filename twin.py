@@ -259,13 +259,16 @@ def generate_markdown_matrix(config_dir):
         "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
     ]
     
+    # --- Locate this inside generate_markdown_matrix() in twin.py ---
+
     for r in results:
-        strategy_str = f"TP:{r['tp']} | PP:{r['pp']} | DP:{r['dp']}"
+        # FIX: Escape the internal pipes so they don't break markdown table boundaries
+        strategy_str = f"TP:{r['tp']} \| PP:{r['pp']} \| DP:{r['dp']}"
         cost_str = f"${r['hourly_cost']:.2f}/hr ({r['billing']})"
         m_tokens_str = f"${r['cost_per_m_tokens']:.4f}"
         status = "✅ PASSED" if r["fits"] else "❌ CRITICAL OOM"
         md.append(f"| `{r['filename']}` | {r['topology']} ({r['provider']}) | {strategy_str} | {cost_str} | **{m_tokens_str}** | {r['throughput_tok_sec']:,.1f} tok/s | {status} |")
-    
+        
     return "\n".join(md)
 
 def main():
